@@ -19,6 +19,25 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT_DIR = path.resolve(__dirname, '..');
 
 /**
+ * 从必应每日壁纸 API 下载封面图（必应在国内可访问）。
+ * @param {string} destPath 保存路径
+ */
+async function downloadBingCover(destPath) {
+  const metaUrl = 'https://www.bing.com/HPImageArchive.aspx?format=js&idx=0&n=1&mkt=zh-CN';
+  const metaRes = await fetch(metaUrl, { signal: AbortSignal.timeout(10_000) });
+  if (!metaRes.ok) throw new Error(`获取必应壁纸信息失败 (${metaRes.status})`);
+  const meta = await metaRes.json();
+  const imgPath = meta?.images?.[0]?.url;
+  if (!imgPath) throw new Error('必应壁纸 API 返回数据异常');
+
+  const imgUrl = `https://www.bing.com${imgPath}`;
+  const imgRes = await fetch(imgUrl, { signal: AbortSignal.timeout(20_000) });
+  if (!imgRes.ok) throw new Error(`下载必应壁纸失败 (${imgRes.status})`);
+  const buf = Buffer.from(await imgRes.arrayBuffer());
+  fs.writeFileSync(destPath, buf);
+}
+
+/**
  * @param {object} [options]
  * @param {string} [options.accessToken]
  * @param {string} [options.apiKey]
@@ -169,7 +188,7 @@ export function createApp(options = {}) {
   });
 
   app.post('/api/publish', auth, apiLimiter, async (req, res) => {
-    const { sessionId } = req.body;
+    const { sessionId, coverBase64, coverMode } = req.body;
     const session = getSession(sessionId);
     if (!session) return res.status(404).json({ error: '会话不存在或已过期，请重新提交输入' });
     if (!session.article) return res.status(400).json({ error: '请先生成全文' });
@@ -178,12 +197,26 @@ export function createApp(options = {}) {
     const articlePath = path.join(tmpDir, 'article.md');
 
     try {
-      // 剥离指向本地文件的 cover 字段（web 临时目录中不存在该文件），
-      // 让 publish.mjs 自动降级到正文第一张图；若正文无图则用默认封面。
-      const articleContent = session.article.replace(
-        /^(cover\s*:\s*)(?!https?:\/\/)(.+)$/m,
-        (_, key, val) => `# cover 已移除（本地路径 ${val.trim()} 在服务器不存在）`,
+      // 剥离指向本地文件的 cover 字段（临时目录中没有该文件）
+      let articleContent = session.article.replace(
+        /^cover\s*:\s*(?!https?:\/\/).+$/m,
+        '',
       );
+
+      // 用户上传了封面图（base64）
+      if (coverBase64) {
+        const coverPath = path.join(tmpDir, 'cover.jpg');
+        fs.writeFileSync(coverPath, Buffer.from(coverBase64, 'base64'));
+        // 在 front matter 中注入 cover 字段
+        articleContent = articleContent.replace(/^---\s*\n/, `---\ncover: ./cover.jpg\n`);
+      }
+
+      // 用户选择自动下载封面（从必应每日壁纸）
+      if (coverMode === 'auto') {
+        const coverPath = path.join(tmpDir, 'cover.jpg');
+        await downloadBingCover(coverPath);
+        articleContent = articleContent.replace(/^---\s*\n/, `---\ncover: ./cover.jpg\n`);
+      }
 
       fs.writeFileSync(articlePath, articleContent, 'utf-8');
       const output = services.publishArticle(articlePath);
