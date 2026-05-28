@@ -112,7 +112,7 @@ ${sessionSummaries}
   "knowledgeNotes": ["值得记录的知识条目，简短，若无则空数组"]
 }`;
 
-  const openai = new OpenAI({ apiKey, baseURL: BASE_URL });
+  const openai = new OpenAI({ apiKey, baseURL: BASE_URL, timeout: 60_000 });
   const res = await openai.chat.completions.create({
     model: 'qwen-max',
     messages: [

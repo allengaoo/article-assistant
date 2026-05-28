@@ -24,6 +24,7 @@ export async function extractUrl(url) {
       'User-Agent': 'Mozilla/5.0 (compatible; GZHBot/2.0)',
       'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
     },
+    signal: AbortSignal.timeout(20_000),
   });
 
   // 移除噪声节点

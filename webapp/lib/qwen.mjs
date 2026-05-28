@@ -29,7 +29,7 @@ const SYSTEM_PROMPT = `你是「工程师的本体论」微信公众号的撰稿
 开篇(Hook) → 破题(Problem) → 概念(Concept) → 论证(Argument) → 升华(Insight) → 结尾(Hook Out + 下期悬念)`;
 
 function client(apiKey) {
-  return new OpenAI({ apiKey, baseURL: BASE_URL });
+  return new OpenAI({ apiKey, baseURL: BASE_URL, timeout: 120_000 });
 }
 
 /**
@@ -135,7 +135,6 @@ ${confirmedOutline}
 title: （从大纲标题获取，不加引号）
 author: 工程师的本体论
 digest: （大纲一句话摘要，不加引号）
-cover: ./cover.jpg
 enableComment: true
 ---
 

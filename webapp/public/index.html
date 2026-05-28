@@ -699,19 +699,32 @@ function setStep(n) {
 }
 
 // ── API helper ────────────────────────────────────────────────────────────────
+// AI 生成类接口（大纲、全文）通义千问可能需要 90s+，给 150s
+// 提取类接口网络请求为主，30s 足够
+const AI_PATHS = ['/api/outline', '/api/revise', '/api/article',
+                  '/api/prd-outline', '/api/prd-revise', '/api/prd-document', '/api/publish'];
+
 async function api(path, body, isFormData = false) {
   const headers = { 'x-access-token': state.token };
+  const timeoutMs = AI_PATHS.some(p => path.startsWith(p)) ? 150_000 : 30_000;
   let fetchOptions;
   if (isFormData) {
-    fetchOptions = { method: 'POST', headers, body };
+    fetchOptions = { method: 'POST', headers, body, signal: AbortSignal.timeout(timeoutMs) };
   } else {
     headers['Content-Type'] = 'application/json';
-    fetchOptions = { method: 'POST', headers, body: JSON.stringify(body) };
+    fetchOptions = { method: 'POST', headers, body: JSON.stringify(body), signal: AbortSignal.timeout(timeoutMs) };
   }
-  const res = await fetch(path, fetchOptions);
-  const data = await res.json();
-  if (!res.ok) throw new Error(data.error || `请求失败 (${res.status})`);
-  return data;
+  try {
+    const res = await fetch(path, fetchOptions);
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || `请求失败 (${res.status})`);
+    return data;
+  } catch (e) {
+    if (e.name === 'TimeoutError' || e.name === 'AbortError') {
+      throw new Error('请求超时，请稍后重试');
+    }
+    throw e;
+  }
 }
 
 function setLoading(text, sub) {
@@ -795,7 +808,11 @@ $('extract-btn').addEventListener('click', async () => {
   const angle = $('field-angle').value.trim();
 
   try {
-    setLoading('提取内容中...', '调用 Jina Reader / 通义千问视觉理解');
+    const extractSubText = type === 'image' ? '通义千问视觉模型识别图片'
+      : type === 'video' ? 'yt-dlp 提取字幕'
+      : type === 'url'   ? '直接抓取页面正文'
+      : '处理文字内容';
+    setLoading('提取内容中...', extractSubText);
 
     let extractData;
     if (type === 'url') {

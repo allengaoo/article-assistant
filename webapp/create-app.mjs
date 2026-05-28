@@ -178,7 +178,14 @@ export function createApp(options = {}) {
     const articlePath = path.join(tmpDir, 'article.md');
 
     try {
-      fs.writeFileSync(articlePath, session.article, 'utf-8');
+      // 剥离指向本地文件的 cover 字段（web 临时目录中不存在该文件），
+      // 让 publish.mjs 自动降级到正文第一张图；若正文无图则用默认封面。
+      const articleContent = session.article.replace(
+        /^(cover\s*:\s*)(?!https?:\/\/)(.+)$/m,
+        (_, key, val) => `# cover 已移除（本地路径 ${val.trim()} 在服务器不存在）`,
+      );
+
+      fs.writeFileSync(articlePath, articleContent, 'utf-8');
       const output = services.publishArticle(articlePath);
 
       const s3 = updateSession(sessionId, { step: 'published' });

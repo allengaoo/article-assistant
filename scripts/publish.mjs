@@ -117,10 +117,19 @@ async function main() {
   log('\n🖼   处理封面图...');
   let thumbMediaId;
   const effectiveCover = coverSrc ?? firstImgSrc;
-  if (!effectiveCover) {
-    die('未找到封面图：请在 front matter 中指定 cover 路径，或在正文中插入至少一张图片');
+  if (effectiveCover) {
+    thumbMediaId = await processCover(effectiveCover, articleDir, token, msg => log(msg));
+  } else if (process.env.WX_DEFAULT_THUMB_MEDIA_ID) {
+    thumbMediaId = process.env.WX_DEFAULT_THUMB_MEDIA_ID;
+    log(`  ✓ 使用默认封面 media_id: ${thumbMediaId}`);
+  } else {
+    die(
+      '未找到封面图。解决方式（任选其一）：\n' +
+      '  1. 在 front matter 中加 cover: https://... （公网图片 URL）\n' +
+      '  2. 在正文中插入至少一张图片\n' +
+      '  3. 在服务器 .env 中配置 WX_DEFAULT_THUMB_MEDIA_ID=<已上传的素材 media_id>'
+    );
   }
-  thumbMediaId = await processCover(effectiveCover, articleDir, token, msg => log(msg));
 
   // ⑦ 压缩 HTML（避免微信编辑器插入多余空行）
   const finalHtml = compressHtml(html);
