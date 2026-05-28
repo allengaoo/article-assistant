@@ -1,30 +1,73 @@
 /**
  * Content extraction from 4 input types.
  * Image understanding: Alibaba Cloud Bailian qwen-vl-max (OpenAI-compatible API)
- * URL extraction: Jina Reader (free, no key needed)
+ * URL extraction: Jina Reader (primary) → direct fetch + cheerio (fallback)
  * Video subtitles: yt-dlp
+ *
+ * Jina Reader (r.jina.ai) is blocked on mainland China servers.
+ * The fallback uses cheerio's fromURL to parse the page directly,
+ * extracting <article> / <main> / <body> text without external dependencies.
  */
 import OpenAI from 'openai';
 import { execSync } from 'child_process';
 import fs from 'fs';
 import path from 'path';
 import os from 'os';
+import { fromURL } from 'cheerio';
 
-const JINA_MAX_CHARS = 14000;
+const MAX_CHARS = 14000;
 const DASHSCOPE_BASE_URL = 'https://dashscope.aliyuncs.com/compatible-mode/v1';
 
 /**
- * Extract article content from a URL via Jina Reader.
+ * Try Jina Reader with a short timeout; on failure fall back to direct fetch.
+ * This lets the same codebase work on both overseas dev machines and
+ * mainland China ECS servers where r.jina.ai is unreachable.
  */
 export async function extractUrl(url) {
-  const jinaUrl = `https://r.jina.ai/${url}`;
-  const resp = await fetch(jinaUrl, {
-    headers: { Accept: 'text/plain', 'X-Return-Format': 'markdown' },
-    signal: AbortSignal.timeout(30_000),
+  try {
+    const jinaUrl = `https://r.jina.ai/${url}`;
+    const resp = await fetch(jinaUrl, {
+      headers: { Accept: 'text/plain', 'X-Return-Format': 'markdown' },
+      signal: AbortSignal.timeout(8_000),   // 短超时，快速切换到兜底
+    });
+    if (resp.ok) {
+      const text = await resp.text();
+      if (text.trim().length > 100) return text.slice(0, MAX_CHARS);
+    }
+  } catch {
+    // Jina 不可达（如大陆服务器），静默降级
+  }
+
+  return extractUrlDirect(url);
+}
+
+/**
+ * Fallback: fetch the page directly and extract readable text via cheerio.
+ */
+async function extractUrlDirect(url) {
+  const $ = await fromURL(url, {
+    headers: {
+      'User-Agent': 'Mozilla/5.0 (compatible; ArticleBot/1.0)',
+      'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
+    },
   });
-  if (!resp.ok) throw new Error(`Jina Reader 请求失败 (${resp.status})`);
-  const text = await resp.text();
-  return text.slice(0, JINA_MAX_CHARS);
+
+  // 移除噪声节点
+  $('script, style, nav, header, footer, aside, .ad, .ads, .advertisement, [class*="sidebar"]').remove();
+
+  // 优先取语义化正文容器
+  const candidates = ['article', 'main', '[role="main"]', '.post-content', '.article-content', '.content', 'body'];
+  let text = '';
+  for (const sel of candidates) {
+    const el = $(sel).first();
+    if (el.length) {
+      text = el.text().replace(/\s{2,}/g, ' ').trim();
+      if (text.length > 200) break;
+    }
+  }
+
+  if (text.length < 50) throw new Error('无法从该页面提取到有效内容，请改用"文字"输入方式粘贴原文');
+  return text.slice(0, MAX_CHARS);
 }
 
 /**
