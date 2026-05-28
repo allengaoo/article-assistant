@@ -54,6 +54,12 @@ jobs:
             "cd ${REMOTE_DIR} && npm install --omit=dev && cd webapp && npm install --omit=dev && pm2 restart gzh-webapp"
 
       - name: Health check
+        env:
+          DEPLOY_HEALTH_URL: ${{ secrets.DEPLOY_HEALTH_URL }}
         run: |
           sleep 3
-          curl -sf https://mdpdemo.space/api/health
+          if [ -z "${DEPLOY_HEALTH_URL:-}" ]; then
+            echo "Skip health check: DEPLOY_HEALTH_URL secret not configured"
+            exit 0
+          fi
+          curl -sf "$DEPLOY_HEALTH_URL"

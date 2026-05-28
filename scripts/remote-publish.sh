@@ -6,7 +6,7 @@ set -euo pipefail
 
 ARTICLE_PATH="$1"
 EXTRA_ARGS="${@:2}"
-REMOTE="${DEPLOY_HOST:-root@8.130.138.121}"
+REMOTE="${DEPLOY_HOST:?请设置 DEPLOY_HOST，例如 root@your-server}"
 REMOTE_DIR="${DEPLOY_DIR:-/root/gzh-publish}"
 ARTICLE_DIR="$(dirname "$ARTICLE_PATH")"
 

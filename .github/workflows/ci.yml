@@ -26,13 +26,13 @@ jobs:
       - name: Install webapp dependencies
         run: npm ci --prefix webapp
 
-      - name: Run unit tests
+      - name: Run tests (unit + e2e)
         run: npm test
+        env:
+          NODE_ENV: test
 
       - name: Shell script syntax check
-        run: bash -n scripts/disk-cleanup.sh && bash -n scripts/remote-deploy.sh && bash -n scripts/remote-publish.sh
+        run: bash -n scripts/disk-cleanup.sh && bash -n scripts/remote-deploy.sh && bash -n scripts/remote-publish.sh && bash -n scripts/secret-scan.sh
 
-      - name: Secret pattern scan
-        run: |
-          ! git grep -E '(sk-[a-zA-Z0-9]{20,}|AppSecret=|ACCESS_TOKEN=[^x]|MASTER_KEY=[^W]|FEISHU_APP_SECRET=[^O])' \
-            -- ':!*.example' ':!.github/workflows/*.yml' || (echo 'Possible secret detected' && exit 1)
+      - name: Secret & sensitive file scan
+        run: bash scripts/secret-scan.sh

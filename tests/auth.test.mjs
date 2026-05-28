@@ -4,11 +4,11 @@ import { isAuthorized, extractToken } from '../webapp/lib/auth.mjs';
 
 describe('auth', () => {
   it('accepts matching token', () => {
-    assert.equal(isAuthorized('secret', 'secret'), true);
+    assert.equal(isAuthorized('tok-a', 'tok-a'), true);
   });
 
   it('rejects wrong token when configured', () => {
-    assert.equal(isAuthorized('wrong', 'secret'), false);
+    assert.equal(isAuthorized('wrong', 'tok-a'), false);
   });
 
   it('allows any token when ACCESS_TOKEN unset', () => {

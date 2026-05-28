@@ -46,7 +46,7 @@ npm run dev          # http://localhost:3000
 | `WX_APPID` / `WX_APPSECRET` | WeChat draft publish | Server |
 | `FEISHU_APP_ID` / `FEISHU_APP_SECRET` | Feishu CLI only | **Local Mac only** |
 
-> **Security:** Never commit `.env`. Feishu credentials stay on your local machine only.
+> **Security:** Never commit `.env`. Feishu credentials stay on your local machine only. CI runs `scripts/secret-scan.sh` on every push/PR to block accidental leaks.
 
 ---
 
@@ -95,9 +95,10 @@ Add repository secrets:
 
 | Secret | Example |
 |--------|---------|
-| `DEPLOY_HOST` | `root@8.130.138.121` |
+| `DEPLOY_HOST` | `root@your-server` |
 | `DEPLOY_SSH_KEY` | Private key (ed25519) |
 | `DEPLOY_DIR` | `/root/gzh-publish` |
+| `DEPLOY_HEALTH_URL` | `https://your-domain/api/health` (optional) |
 
 Run **Actions → Deploy → Run workflow**, type `deploy` to confirm.
 
@@ -106,10 +107,15 @@ Run **Actions → Deploy → Run workflow**, type `deploy` to confirm.
 ## Testing / 测试
 
 ```bash
-npm test
+npm test          # 单元测试 + 全流程 e2e + 安全测试（31 项）
+npm run test:unit # 仅单元测试
+npm run test:e2e  # 仅 API 全流程测试
+bash scripts/secret-scan.sh  # 本地密钥扫描
 ```
 
-CI runs on every push/PR: unit tests + shell syntax check + secret pattern scan.
+CI runs on every push/PR: **unit + e2e tests**, shell syntax check, and `scripts/secret-scan.sh`.
+
+E2E tests use mocked AI / WeChat services — no real API keys required in CI.
 
 ---
 

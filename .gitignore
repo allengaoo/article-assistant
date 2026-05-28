@@ -13,3 +13,10 @@ logs/
 .DS_Store
 coverage/
 .nyc_output/
+# SSH keys / credential files
+*.pem
+*.key
+id_rsa
+id_ed25519
+credentials.json
+secrets.json
