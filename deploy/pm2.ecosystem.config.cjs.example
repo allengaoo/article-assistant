@@ -1,0 +1,10 @@
+module.exports = {
+  apps: [{
+    name: 'gzh-webapp',
+    script: 'webapp/server.mjs',
+    cwd: '/root/gzh-publish',
+    env: {
+      NODE_ENV: 'production',
+    },
+  }],
+};

@@ -1,0 +1,11 @@
+# Example crontab entries (server-side, not committed with secrets)
+# Edit with: crontab -e
+
+# Disk cleanup every 6 hours
+0 */6 * * * /root/gzh-publish/scripts/disk-cleanup.sh >> /root/gzh-publish/logs/disk-cleanup.log 2>&1
+
+# Daily conversation summary at 00:05
+5 0 * * * curl -sf "http://localhost:3000/api/daily-summary?master=YOUR_MASTER_KEY" >> /root/gzh-publish/logs/daily-summary.log 2>&1
+
+# Weekly access-token rotation (Monday 02:00)
+0 2 * * 1 /usr/bin/python3 /root/gzh-publish/deploy/rotate-token.py >> /root/gzh-publish/logs/rotate-token.log 2>&1

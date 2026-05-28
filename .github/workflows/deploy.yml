@@ -1,0 +1,59 @@
+name: Deploy
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: 'Type "deploy" to confirm production deploy'
+        required: true
+        default: ''
+
+jobs:
+  deploy:
+    if: github.event.inputs.confirm == 'deploy'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup SSH
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.DEPLOY_SSH_KEY }}" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          HOST="${DEPLOY_HOST#*@}"
+          ssh-keyscan -H "$HOST" >> ~/.ssh/known_hosts 2>/dev/null || true
+
+      - name: Rsync to server
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_DIR: ${{ secrets.DEPLOY_DIR }}
+        run: |
+          REMOTE="${DEPLOY_HOST}"
+          REMOTE_DIR="${DEPLOY_DIR:-/root/gzh-publish}"
+          rsync -az --delete \
+            --exclude '.git' \
+            --exclude 'node_modules' \
+            --exclude 'webapp/node_modules' \
+            --exclude '.env' \
+            --exclude 'webapp/.env' \
+            --exclude 'data' \
+            --exclude 'logs' \
+            -e "ssh -i ~/.ssh/id_ed25519 -o StrictHostKeyChecking=no" \
+            ./ "${REMOTE}:${REMOTE_DIR}/"
+
+      - name: Install & restart PM2
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_DIR: ${{ secrets.DEPLOY_DIR }}
+        run: |
+          REMOTE="${DEPLOY_HOST}"
+          REMOTE_DIR="${DEPLOY_DIR:-/root/gzh-publish}"
+          ssh -i ~/.ssh/id_ed25519 -o StrictHostKeyChecking=no "$REMOTE" \
+            "cd ${REMOTE_DIR} && npm install --omit=dev && cd webapp && npm install --omit=dev && pm2 restart gzh-webapp"
+
+      - name: Health check
+        run: |
+          sleep 3
+          curl -sf https://mdpdemo.space/api/health

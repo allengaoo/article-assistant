@@ -1,0 +1,1010 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+  <meta name="apple-mobile-web-app-title" content="投稿助手" />
+  <meta name="theme-color" content="#ffffff" />
+  <title>工程师投稿助手</title>
+  <link rel="manifest" href="/manifest.json" />
+  <link rel="apple-touch-icon" href="/icon-192.png" />
+  <!-- marked.js for Markdown rendering -->
+  <script src="https://cdn.jsdelivr.net/npm/marked@12/marked.min.js"></script>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --accent: #2f7fc1;
+      --accent-light: #e8f2fb;
+      --accent-dark: #1d5c94;
+      --text: #1a1a1a;
+      --text-secondary: #555;
+      --text-muted: #888;
+      --border: #dde3ea;
+      --bg: #f5f7fa;
+      --card: #ffffff;
+      --danger: #d93025;
+      --success: #1a7a4a;
+      --radius: 12px;
+      --radius-sm: 8px;
+      --tap: 48px;
+    }
+
+    html, body {
+      height: 100%;
+      font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Hiragino Sans GB",
+                   "Microsoft YaHei", sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      font-size: 15px;
+      line-height: 1.6;
+      -webkit-tap-highlight-color: transparent;
+      overscroll-behavior: none;
+    }
+
+    /* ── Layout ── */
+    #app {
+      min-height: 100dvh;
+      display: flex;
+      flex-direction: column;
+    }
+
+    header {
+      background: var(--card);
+      border-bottom: 1px solid var(--border);
+      padding: 14px 18px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      position: sticky;
+      top: 0;
+      z-index: 10;
+    }
+    header h1 { font-size: 16px; font-weight: 600; flex: 1; }
+    header .token-badge {
+      font-size: 11px;
+      color: var(--text-muted);
+      cursor: pointer;
+      padding: 4px 8px;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+    }
+
+    main { flex: 1; padding: 16px; max-width: 560px; margin: 0 auto; width: 100%; }
+
+    /* ── Progress steps ── */
+    .steps {
+      display: flex;
+      align-items: center;
+      gap: 0;
+      margin-bottom: 20px;
+    }
+    .step {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 4px;
+      position: relative;
+    }
+    .step::after {
+      content: '';
+      position: absolute;
+      top: 14px;
+      left: 50%;
+      width: 100%;
+      height: 2px;
+      background: var(--border);
+      z-index: 0;
+    }
+    .step:last-child::after { display: none; }
+    .step-dot {
+      width: 28px;
+      height: 28px;
+      border-radius: 50%;
+      background: var(--border);
+      color: var(--text-muted);
+      font-size: 12px;
+      font-weight: 700;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      position: relative;
+      z-index: 1;
+      transition: background 0.2s, color 0.2s;
+    }
+    .step.active .step-dot { background: var(--accent); color: #fff; }
+    .step.done .step-dot { background: var(--success); color: #fff; }
+    .step.done::after { background: var(--success); }
+    .step-label { font-size: 10px; color: var(--text-muted); white-space: nowrap; }
+    .step.active .step-label { color: var(--accent); font-weight: 600; }
+    .step.done .step-label { color: var(--success); }
+
+    /* ── Cards ── */
+    .card {
+      background: var(--card);
+      border-radius: var(--radius);
+      border: 1px solid var(--border);
+      overflow: hidden;
+    }
+    .card-header {
+      padding: 14px 16px;
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--text-secondary);
+      border-bottom: 1px solid var(--border);
+      background: #fafbfc;
+    }
+    .card-body { padding: 16px; }
+
+    /* ── Form elements ── */
+    label { display: block; font-size: 13px; color: var(--text-secondary); margin-bottom: 6px; }
+    input[type="text"],
+    input[type="url"],
+    input[type="password"],
+    textarea {
+      width: 100%;
+      border: 1.5px solid var(--border);
+      border-radius: var(--radius-sm);
+      padding: 12px 14px;
+      font-size: 15px;
+      font-family: inherit;
+      color: var(--text);
+      background: #fff;
+      outline: none;
+      transition: border-color 0.15s;
+      resize: vertical;
+    }
+    input:focus, textarea:focus { border-color: var(--accent); }
+    textarea { min-height: 100px; }
+
+    /* ── Tabs ── */
+    .tabs {
+      display: flex;
+      background: #eef2f6;
+      border-radius: 10px;
+      padding: 3px;
+      gap: 2px;
+      margin-bottom: 16px;
+    }
+    .tab {
+      flex: 1;
+      height: 36px;
+      border: none;
+      background: transparent;
+      border-radius: 8px;
+      font-size: 13px;
+      font-weight: 500;
+      color: var(--text-secondary);
+      cursor: pointer;
+      transition: background 0.15s, color 0.15s;
+    }
+    .tab.active { background: #fff; color: var(--accent); font-weight: 600; }
+
+    /* ── Buttons ── */
+    .btn {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      width: 100%;
+      min-height: var(--tap);
+      border: none;
+      border-radius: var(--radius-sm);
+      font-size: 15px;
+      font-weight: 600;
+      font-family: inherit;
+      cursor: pointer;
+      transition: opacity 0.15s, background 0.15s;
+    }
+    .btn:active { opacity: 0.8; }
+    .btn:disabled { opacity: 0.45; cursor: not-allowed; }
+    .btn-primary { background: var(--accent); color: #fff; }
+    .btn-secondary { background: #fff; color: var(--text); border: 1.5px solid var(--border); }
+    .btn-danger { background: var(--danger); color: #fff; }
+    .btn-success { background: var(--success); color: #fff; }
+
+    .btn-row { display: flex; gap: 10px; }
+    .btn-row .btn { flex: 1; }
+
+    /* ── Screens ── */
+    .screen { display: none; }
+    .screen.active { display: block; }
+
+    /* ── Auth screen ── */
+    #screen-auth {
+      display: none;
+      flex-direction: column;
+      justify-content: center;
+      min-height: 100dvh;
+      padding: 32px 20px;
+      background: var(--bg);
+    }
+    #screen-auth.active { display: flex; }
+    .auth-logo {
+      text-align: center;
+      margin-bottom: 32px;
+    }
+    .auth-logo .logo-title { font-size: 20px; font-weight: 700; color: var(--text); }
+    .auth-logo .logo-sub { font-size: 13px; color: var(--text-muted); margin-top: 4px; }
+
+    /* ── Loading overlay ── */
+    #screen-loading {
+      display: none;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 16px;
+      min-height: 40vh;
+      text-align: center;
+    }
+    #screen-loading.active { display: flex; }
+    .spinner {
+      width: 36px;
+      height: 36px;
+      border: 3px solid var(--border);
+      border-top-color: var(--accent);
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .loading-text { font-size: 14px; color: var(--text-secondary); }
+    .loading-sub { font-size: 12px; color: var(--text-muted); }
+
+    /* ── Outline display ── */
+    .outline-content {
+      font-size: 14px;
+      line-height: 1.7;
+      color: var(--text);
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+    .outline-content h1 { font-size: 17px; font-weight: 700; margin-bottom: 6px; color: var(--accent); }
+    .outline-content h2 { font-size: 15px; font-weight: 600; margin: 14px 0 4px; }
+    .outline-content h3 { font-size: 14px; font-weight: 600; margin: 10px 0 3px; color: var(--text-secondary); }
+    .outline-content p { margin: 4px 0; }
+    .outline-content strong { color: var(--accent); }
+
+    .round-badge {
+      display: inline-block;
+      font-size: 11px;
+      color: var(--text-muted);
+      background: #f0f2f5;
+      border-radius: 6px;
+      padding: 2px 8px;
+      margin-bottom: 10px;
+    }
+
+    /* ── Article preview ── */
+    .article-preview {
+      font-size: 14px;
+      line-height: 1.8;
+      color: var(--text);
+      word-break: break-word;
+      max-height: 55vh;
+      overflow-y: auto;
+      -webkit-overflow-scrolling: touch;
+    }
+    .article-preview h1 { font-size: 18px; font-weight: 700; margin: 0 0 8px; }
+    .article-preview h2 { font-size: 16px; font-weight: 600; margin: 16px 0 6px; color: var(--accent); }
+    .article-preview h3 { font-size: 15px; font-weight: 600; margin: 12px 0 4px; }
+    .article-preview p { margin: 8px 0; }
+    .article-preview strong { font-weight: 700; }
+    .article-preview blockquote {
+      border-left: 3px solid var(--accent);
+      background: var(--accent-light);
+      padding: 8px 12px;
+      margin: 10px 0;
+      border-radius: 0 6px 6px 0;
+      color: var(--text-secondary);
+    }
+    .article-preview table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 13px;
+      margin: 10px 0;
+    }
+    .article-preview th, .article-preview td {
+      border: 1px solid var(--border);
+      padding: 7px 10px;
+      text-align: left;
+    }
+    .article-preview th { background: #f5f7fa; font-weight: 600; }
+    .article-preview code {
+      background: #f0f2f5;
+      border-radius: 4px;
+      padding: 1px 5px;
+      font-size: 13px;
+      font-family: "SF Mono", "Fira Code", monospace;
+    }
+    .article-preview pre {
+      background: #1e1e1e;
+      color: #d4d4d4;
+      border-radius: var(--radius-sm);
+      padding: 12px;
+      overflow-x: auto;
+      font-size: 12px;
+      margin: 10px 0;
+    }
+    .article-preview pre code { background: none; padding: 0; color: inherit; }
+
+    /* Frontmatter block — hide it in preview */
+    .article-preview .frontmatter { display: none; }
+
+    /* ── Success screen ── */
+    .success-icon {
+      width: 64px;
+      height: 64px;
+      background: var(--success);
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin: 0 auto 16px;
+    }
+    .success-icon svg { width: 32px; height: 32px; fill: none; stroke: #fff; stroke-width: 2.5; stroke-linecap: round; stroke-linejoin: round; }
+
+    /* ── Error toast ── */
+    #toast {
+      position: fixed;
+      bottom: max(20px, env(safe-area-inset-bottom));
+      left: 50%;
+      transform: translateX(-50%) translateY(100px);
+      background: #1a1a1a;
+      color: #fff;
+      padding: 12px 20px;
+      border-radius: 10px;
+      font-size: 13px;
+      max-width: calc(100vw - 32px);
+      text-align: center;
+      transition: transform 0.25s ease;
+      z-index: 999;
+    }
+    #toast.show { transform: translateX(-50%) translateY(0); }
+
+    /* ── Misc ── */
+    .gap-12 { display: flex; flex-direction: column; gap: 12px; }
+    .gap-16 { display: flex; flex-direction: column; gap: 16px; }
+    .text-muted { font-size: 12px; color: var(--text-muted); }
+    .file-input-wrap {
+      border: 2px dashed var(--border);
+      border-radius: var(--radius-sm);
+      padding: 24px 16px;
+      text-align: center;
+      color: var(--text-muted);
+      cursor: pointer;
+      transition: border-color 0.15s, background 0.15s;
+    }
+    .file-input-wrap:hover { border-color: var(--accent); background: var(--accent-light); }
+    .file-input-wrap input { display: none; }
+    .file-name { margin-top: 8px; font-size: 13px; color: var(--accent); font-weight: 500; }
+  </style>
+</head>
+<body>
+
+<div id="app">
+  <header>
+    <h1>工程师投稿助手</h1>
+    <span class="token-badge" id="logout-btn" title="重新登录">已登录</span>
+  </header>
+
+  <main>
+    <!-- ── Auth Screen ── -->
+    <div id="screen-auth" class="screen">
+      <div class="auth-logo">
+        <div class="logo-title">工程师的本体论</div>
+        <div class="logo-sub">投稿助手 · 请输入访问密码</div>
+      </div>
+      <div class="gap-12">
+        <div>
+          <label for="token-input">访问密码</label>
+          <input type="password" id="token-input" placeholder="输入6位密码" autocomplete="current-password" />
+        </div>
+        <button class="btn btn-primary" id="auth-btn">进入</button>
+      </div>
+    </div>
+
+    <!-- ── Mode selector (hidden on auth/success) ── -->
+    <div id="mode-bar" style="display:none; padding: 0 0 12px;">
+      <div class="tabs" style="max-width:280px;">
+        <button class="tab active" id="mode-article" data-mode="article">公众号文章</button>
+        <button class="tab" id="mode-prd" data-mode="prd">PRD 文档</button>
+      </div>
+    </div>
+
+    <!-- ── Step progress (hidden on auth) ── -->
+    <div id="step-bar" style="display:none;">
+      <div class="steps">
+        <div class="step" data-step="1">
+          <div class="step-dot">1</div>
+          <span class="step-label">输入</span>
+        </div>
+        <div class="step" data-step="2">
+          <div class="step-dot">2</div>
+          <span class="step-label">大纲</span>
+        </div>
+        <div class="step" data-step="3">
+          <div class="step-dot">3</div>
+          <span class="step-label">全文</span>
+        </div>
+        <div class="step" data-step="4">
+          <div class="step-dot">4</div>
+          <span class="step-label">发布</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── Input Screen ── -->
+    <div id="screen-input" class="screen">
+      <div class="gap-16">
+        <div class="tabs">
+          <button class="tab active" data-type="url">网页 URL</button>
+          <button class="tab" data-type="text">文字</button>
+          <button class="tab" data-type="image">图片</button>
+          <button class="tab" data-type="video">视频</button>
+        </div>
+
+        <!-- URL -->
+        <div id="input-url" class="input-panel">
+          <div class="gap-12">
+            <div>
+              <label>网页链接</label>
+              <input type="url" id="field-url" placeholder="https://..." inputmode="url" />
+            </div>
+          </div>
+        </div>
+
+        <!-- Text -->
+        <div id="input-text" class="input-panel" style="display:none;">
+          <div>
+            <label>粘贴或语音输入文字内容</label>
+            <div style="position:relative;">
+              <textarea id="field-text" placeholder="在此粘贴文章摘录、笔记或任意文字..." rows="6" style="padding-bottom:44px;"></textarea>
+              <button id="voice-btn" type="button" title="语音输入" style="
+                position:absolute; bottom:10px; right:10px;
+                width:36px; height:36px; border-radius:50%;
+                border:1.5px solid var(--border);
+                background:var(--card); cursor:pointer;
+                display:flex; align-items:center; justify-content:center;
+                transition:background 0.15s, border-color 0.15s;
+              ">
+                <svg id="voice-icon" width="18" height="18" viewBox="0 0 24 24" fill="none"
+                     stroke="var(--text-secondary)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <rect x="9" y="2" width="6" height="12" rx="3"/>
+                  <path d="M5 10a7 7 0 0 0 14 0"/>
+                  <line x1="12" y1="19" x2="12" y2="23"/>
+                  <line x1="8" y1="23" x2="16" y2="23"/>
+                </svg>
+              </button>
+            </div>
+            <p class="text-muted" id="voice-hint" style="margin-top:4px;">点击麦克风开始语音输入</p>
+          </div>
+        </div>
+
+        <!-- Image -->
+        <div id="input-image" class="input-panel" style="display:none;">
+          <label>上传图片（截图、信息图等）</label>
+          <label class="file-input-wrap" id="image-drop-zone">
+            <span id="image-label-text">点击选择图片<br><span style="font-size:12px">支持 JPG / PNG / WEBP</span></span>
+            <input type="file" id="field-image" accept="image/*" />
+            <div class="file-name" id="image-file-name" style="display:none;"></div>
+          </label>
+        </div>
+
+        <!-- Video -->
+        <div id="input-video" class="input-panel" style="display:none;">
+          <div class="gap-12">
+            <div>
+              <label>视频链接</label>
+              <input type="url" id="field-video" placeholder="https://www.bilibili.com/video/..." inputmode="url" />
+            </div>
+            <p class="text-muted">支持 Bilibili（需有字幕）、抖音长视频（有字幕）等平台</p>
+          </div>
+        </div>
+
+        <!-- Common: writing angle hint -->
+        <div>
+          <label>写作角度提示（可选）</label>
+          <textarea id="field-angle" placeholder="例：从工程师视角解读，聚焦本体层的设计逻辑" rows="2"></textarea>
+        </div>
+
+        <button class="btn btn-primary" id="extract-btn">提取内容 · 生成大纲</button>
+        <p class="text-muted" id="mode-hint" style="text-align:center;"></p>
+      </div>
+    </div>
+
+    <!-- ── Loading Screen ── -->
+    <div id="screen-loading" class="screen">
+      <div class="spinner"></div>
+      <div class="loading-text" id="loading-text">正在处理...</div>
+      <div class="loading-sub" id="loading-sub">通义千问处理中，请稍候</div>
+    </div>
+
+    <!-- ── Outline Screen ── -->
+    <div id="screen-outline" class="screen">
+      <div class="gap-16">
+        <div class="card">
+          <div class="card-header" id="outline-header">AI 生成大纲</div>
+          <div class="card-body">
+            <div class="outline-content" id="outline-display"></div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-header">修改意见（可选）</div>
+          <div class="card-body gap-12">
+            <textarea id="field-feedback" placeholder="如需调整，在此说明修改方向，留空则直接确认..." rows="3"></textarea>
+            <div class="btn-row">
+              <button class="btn btn-secondary" id="revise-btn">重新生成</button>
+              <button class="btn btn-primary" id="confirm-outline-btn">确认 · 写全文</button>
+            </div>
+          </div>
+        </div>
+
+        <button class="btn btn-secondary" id="back-to-input-btn" style="margin-top:-4px;">← 重新输入</button>
+      </div>
+    </div>
+
+    <!-- ── Article Screen ── -->
+    <div id="screen-article" class="screen">
+      <div class="gap-16">
+        <div class="card">
+          <div class="card-header" id="article-screen-header">全文预览</div>
+          <div class="card-body" style="padding:0;">
+            <div class="article-preview" id="article-display" style="padding:16px;"></div>
+          </div>
+        </div>
+
+        <!-- 公众号文章操作 -->
+        <div id="article-actions-wx">
+          <div class="btn-row">
+            <button class="btn btn-secondary" id="back-to-outline-btn">← 修改大纲</button>
+            <button class="btn btn-success" id="publish-btn">推送草稿箱</button>
+          </div>
+          <p class="text-muted" style="text-align:center;margin-top:8px;">推送后可在微信公众号后台「草稿箱」找到本文</p>
+        </div>
+
+        <!-- PRD 文档操作 -->
+        <div id="article-actions-prd" style="display:none;">
+          <div class="btn-row">
+            <button class="btn btn-secondary" id="back-to-outline-prd-btn">← 修改大纲</button>
+            <button class="btn btn-primary" id="download-prd-btn">下载 PRD.md</button>
+          </div>
+          <div class="card" style="margin-top:12px;">
+            <div class="card-body" style="font-size:13px; color:var(--text-secondary); line-height:1.7;">
+              下载后在电脑上运行：<br>
+              <code style="background:#f0f2f5;padding:6px 10px;border-radius:6px;display:block;margin:8px 0;font-size:12px;">npm run feishu-publish &lt;下载的文件路径&gt;</code>
+              即可将 PRD 发布到飞书文档并获取分享链接。
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── Success Screen ── -->
+    <div id="screen-success" class="screen">
+      <div style="text-align:center; padding: 40px 0;">
+        <div class="success-icon">
+          <svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg>
+        </div>
+        <div style="font-size:18px; font-weight:700; margin-bottom:8px;">草稿已推送成功</div>
+        <div class="text-muted" id="success-title" style="margin-bottom:32px;"></div>
+        <button class="btn btn-primary" id="restart-btn">写下一篇</button>
+      </div>
+    </div>
+  </main>
+</div>
+
+<!-- Toast -->
+<div id="toast"></div>
+
+<script>
+// ── State ────────────────────────────────────────────────────────────────────
+const state = {
+  token: localStorage.getItem('gzh_token') || '',
+  sessionId: sessionStorage.getItem('gzh_session') || '',
+  inputType: 'url',
+  currentStep: 1,
+  outlineRound: 0,
+  mode: 'article',   // 'article' | 'prd'
+};
+
+// ── DOM refs ──────────────────────────────────────────────────────────────────
+const $ = (id) => document.getElementById(id);
+const screens = ['auth', 'input', 'loading', 'outline', 'article', 'success'];
+const stepBar = $('step-bar');
+const modeBar = $('mode-bar');
+const logoutBtn = $('logout-btn');
+
+// ── Toast ─────────────────────────────────────────────────────────────────────
+let toastTimer;
+function showToast(msg) {
+  const t = $('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => t.classList.remove('show'), 3500);
+}
+
+// ── Screen management ─────────────────────────────────────────────────────────
+function showScreen(name) {
+  screens.forEach((s) => {
+    const el = $(`screen-${s}`);
+    el.classList.toggle('active', s === name);
+  });
+  const hide = name === 'auth' || name === 'success';
+  stepBar.style.display = hide ? 'none' : 'block';
+  modeBar.style.display = hide ? 'none' : 'block';
+}
+
+function setStep(n) {
+  state.currentStep = n;
+  document.querySelectorAll('.step').forEach((el) => {
+    const s = parseInt(el.dataset.step);
+    el.classList.toggle('active', s === n);
+    el.classList.toggle('done', s < n);
+    el.classList.remove('active');
+    if (s === n) el.classList.add('active');
+    if (s < n) el.classList.add('done');
+  });
+}
+
+// ── API helper ────────────────────────────────────────────────────────────────
+async function api(path, body, isFormData = false) {
+  const headers = { 'x-access-token': state.token };
+  let fetchOptions;
+  if (isFormData) {
+    fetchOptions = { method: 'POST', headers, body };
+  } else {
+    headers['Content-Type'] = 'application/json';
+    fetchOptions = { method: 'POST', headers, body: JSON.stringify(body) };
+  }
+  const res = await fetch(path, fetchOptions);
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || `请求失败 (${res.status})`);
+  return data;
+}
+
+function setLoading(text, sub) {
+  $('loading-text').textContent = text || '处理中...';
+  $('loading-sub').textContent = sub || '通义千问处理中，请稍候';
+  showScreen('loading');
+}
+
+// ── Auth ──────────────────────────────────────────────────────────────────────
+function init() {
+  if (state.token) {
+    showScreen('input');
+    setStep(1);
+  } else {
+    showScreen('auth');
+  }
+}
+
+$('auth-btn').addEventListener('click', () => {
+  const val = $('token-input').value.trim();
+  if (!val) { showToast('请输入访问密码'); return; }
+  state.token = val;
+  localStorage.setItem('gzh_token', val);
+  showScreen('input');
+  setStep(1);
+});
+$('token-input').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') $('auth-btn').click();
+});
+
+// ── Mode switching ────────────────────────────────────────────────────────────
+document.querySelectorAll('#mode-bar .tab').forEach((btn) => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('#mode-bar .tab').forEach((b) => b.classList.remove('active'));
+    btn.classList.add('active');
+    state.mode = btn.dataset.mode;
+    $('extract-btn').textContent = state.mode === 'prd'
+      ? '提取内容 · 生成 PRD 大纲'
+      : '提取内容 · 生成大纲';
+    $('mode-hint').textContent = state.mode === 'prd'
+      ? 'PRD 模式：生成后可下载 .md 文件，在本地发布到飞书'
+      : '';
+  });
+});
+
+logoutBtn.addEventListener('click', () => {
+  if (!confirm('确认退出登录？')) return;
+  localStorage.removeItem('gzh_token');
+  sessionStorage.removeItem('gzh_session');
+  state.token = '';
+  state.sessionId = '';
+  showScreen('auth');
+  stepBar.style.display = 'none';
+});
+
+// ── Input tabs ────────────────────────────────────────────────────────────────
+document.querySelectorAll('.tab').forEach((btn) => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.tab').forEach((b) => b.classList.remove('active'));
+    document.querySelectorAll('.input-panel').forEach((p) => (p.style.display = 'none'));
+    btn.classList.add('active');
+    state.inputType = btn.dataset.type;
+    $(`input-${state.inputType}`).style.display = 'block';
+  });
+});
+
+// File picker
+$('field-image').addEventListener('change', (e) => {
+  const file = e.target.files[0];
+  if (file) {
+    $('image-label-text').style.display = 'none';
+    const fn = $('image-file-name');
+    fn.textContent = file.name;
+    fn.style.display = 'block';
+  }
+});
+
+// ── Extract & generate outline ────────────────────────────────────────────────
+$('extract-btn').addEventListener('click', async () => {
+  const type = state.inputType;
+  const angle = $('field-angle').value.trim();
+
+  try {
+    setLoading('提取内容中...', '调用 Jina Reader / 通义千问视觉理解');
+
+    let extractData;
+    if (type === 'url') {
+      const url = $('field-url').value.trim();
+      if (!url) { showScreen('input'); showToast('请填写网页链接'); return; }
+      extractData = await api('/api/extract', { type, url });
+    } else if (type === 'text') {
+      let text = $('field-text').value.trim();
+      if (angle) text = `[写作角度] ${angle}\n\n${text}`;
+      if (!text) { showScreen('input'); showToast('请填写文字内容'); return; }
+      extractData = await api('/api/extract', { type, text });
+    } else if (type === 'image') {
+      const file = $('field-image').files[0];
+      if (!file) { showScreen('input'); showToast('请选择图片'); return; }
+      const fd = new FormData();
+      fd.append('type', 'image');
+      fd.append('token', state.token);
+      fd.append('image', file);
+      extractData = await api('/api/extract', fd, true);
+    } else if (type === 'video') {
+      const videoUrl = $('field-video').value.trim();
+      if (!videoUrl) { showScreen('input'); showToast('请填写视频链接'); return; }
+      extractData = await api('/api/extract', { type, videoUrl });
+    }
+
+    state.sessionId = extractData.sessionId;
+    sessionStorage.setItem('gzh_session', state.sessionId);
+
+    // Append angle hint to rawContent on server by passing it in outline generation
+    // (angle is already embedded in text; for other types, pass as extra)
+    setLoading(
+      state.mode === 'prd' ? '生成 PRD 大纲...' : '生成文章大纲...',
+      '通义千问分析内容中'
+    );
+
+    const outlineEndpoint = state.mode === 'prd' ? '/api/prd-outline' : '/api/outline';
+    const outlineData = await api(outlineEndpoint, {
+      sessionId: state.sessionId,
+      angleHint: angle,
+    });
+
+    state.outlineRound = 1;
+    renderOutline(outlineData.outline);
+    setStep(2);
+    showScreen('outline');
+  } catch (e) {
+    showScreen('input');
+    showToast(e.message);
+  }
+});
+
+// ── Outline rendering ─────────────────────────────────────────────────────────
+function renderOutline(text) {
+  const el = $('outline-display');
+  // Simple render: parse headings and paragraphs
+  el.innerHTML = '';
+  const lines = text.split('\n');
+  let html = '';
+  for (const line of lines) {
+    if (line.startsWith('# ')) html += `<h1>${esc(line.slice(2))}</h1>`;
+    else if (line.startsWith('## ')) html += `<h2>${esc(line.slice(3))}</h2>`;
+    else if (line.startsWith('### ')) html += `<h3>${esc(line.slice(4))}</h3>`;
+    else if (line.startsWith('**') && line.endsWith('**')) {
+      html += `<p><strong>${esc(line.slice(2, -2))}</strong></p>`;
+    } else if (line.trim()) html += `<p>${esc(line)}</p>`;
+    else html += '<br>';
+  }
+  el.innerHTML = html;
+  $('outline-header').textContent = `AI 生成大纲（第 ${state.outlineRound} 稿）`;
+}
+
+function esc(s) {
+  return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+// ── Revise outline ────────────────────────────────────────────────────────────
+$('revise-btn').addEventListener('click', async () => {
+  const feedback = $('field-feedback').value.trim();
+  if (!feedback) { showToast('请填写修改意见，或直接点「确认」'); return; }
+
+  try {
+    setLoading('重新生成大纲...', '正在整合你的修改意见');
+    const endpoint = state.mode === 'prd' ? '/api/prd-revise' : '/api/revise';
+    const data = await api(endpoint, { sessionId: state.sessionId, feedback });
+    state.outlineRound = data.round + 1;
+    $('field-feedback').value = '';
+    renderOutline(data.outline);
+    showScreen('outline');
+  } catch (e) {
+    showScreen('outline');
+    showToast(e.message);
+  }
+});
+
+// ── Confirm outline → generate article/PRD ───────────────────────────────────
+$('confirm-outline-btn').addEventListener('click', async () => {
+  try {
+    const isPrd = state.mode === 'prd';
+    setLoading(isPrd ? '生成 PRD 文档...' : '生成全文...', '按大纲扩写中，约需 30-60 秒');
+    setStep(3);
+    const endpoint = isPrd ? '/api/prd-document' : '/api/article';
+    const data = await api(endpoint, { sessionId: state.sessionId });
+    renderArticle(data.article);
+
+    // 切换底部操作区
+    $('article-screen-header').textContent = isPrd ? 'PRD 文档预览' : '全文预览';
+    $('article-actions-wx').style.display  = isPrd ? 'none' : 'block';
+    $('article-actions-prd').style.display = isPrd ? 'block' : 'none';
+
+    showScreen('article');
+  } catch (e) {
+    showScreen('outline');
+    setStep(2);
+    showToast(e.message);
+  }
+});
+
+// ── Article rendering ─────────────────────────────────────────────────────────
+function renderArticle(markdown) {
+  // Strip front matter block before rendering
+  const stripped = markdown.replace(/^---[\s\S]*?---\n?/, '');
+  $('article-display').innerHTML = marked.parse(stripped);
+}
+
+// ── Back buttons ──────────────────────────────────────────────────────────────
+$('back-to-input-btn').addEventListener('click', () => {
+  state.sessionId = '';
+  sessionStorage.removeItem('gzh_session');
+  setStep(1);
+  showScreen('input');
+});
+
+$('back-to-outline-btn').addEventListener('click', () => {
+  setStep(2);
+  showScreen('outline');
+});
+
+$('back-to-outline-prd-btn').addEventListener('click', () => {
+  setStep(2);
+  showScreen('outline');
+});
+
+// ── Download PRD ──────────────────────────────────────────────────────────────
+$('download-prd-btn').addEventListener('click', () => {
+  if (!state.sessionId) { showToast('会话已过期，请重新生成'); return; }
+  const url = `/api/download-prd?sessionId=${state.sessionId}&token=${state.token}`;
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'prd.md';
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+});
+
+// ── Publish ───────────────────────────────────────────────────────────────────
+$('publish-btn').addEventListener('click', async () => {
+  if (!confirm('确认推送到微信草稿箱？')) return;
+  try {
+    setLoading('推送中...', '上传图片 · 渲染 HTML · 调用微信 API');
+    setStep(4);
+    const data = await api('/api/publish', { sessionId: state.sessionId });
+    $('success-title').textContent = `《${data.title}》已进入草稿箱`;
+    showScreen('success');
+  } catch (e) {
+    setStep(3);
+    showScreen('article');
+    showToast(e.message);
+  }
+});
+
+// ── Restart ───────────────────────────────────────────────────────────────────
+$('restart-btn').addEventListener('click', () => {
+  state.sessionId = '';
+  sessionStorage.removeItem('gzh_session');
+  $('field-url').value = '';
+  $('field-text').value = '';
+  $('field-video').value = '';
+  $('field-angle').value = '';
+  $('field-feedback').value = '';
+  $('image-file-name').style.display = 'none';
+  $('image-label-text').style.display = '';
+  state.outlineRound = 0;
+  setStep(1);
+  showScreen('input');
+});
+
+// ── Voice input ───────────────────────────────────────────────────────────────
+(function () {
+  const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+  const voiceBtn = $('voice-btn');
+  const voiceHint = $('voice-hint');
+  const voiceIcon = $('voice-icon');
+
+  if (!SpeechRecognition) {
+    if (voiceBtn) voiceBtn.style.display = 'none';
+    if (voiceHint) voiceHint.textContent = '当前浏览器不支持语音输入';
+    return;
+  }
+
+  const rec = new SpeechRecognition();
+  rec.lang = 'zh-CN';
+  rec.continuous = true;       // 持续识别，不自动停止
+  rec.interimResults = true;   // 显示中间结果
+
+  let isListening = false;
+  let finalTranscript = '';
+
+  function setListening(on) {
+    isListening = on;
+    voiceBtn.style.background = on ? 'var(--accent)' : 'var(--card)';
+    voiceBtn.style.borderColor = on ? 'var(--accent)' : 'var(--border)';
+    voiceIcon.setAttribute('stroke', on ? '#fff' : 'var(--text-secondary)');
+    voiceHint.textContent = on ? '正在识别...点击停止' : '点击麦克风开始语音输入';
+  }
+
+  rec.onresult = (e) => {
+    let interim = '';
+    for (let i = e.resultIndex; i < e.results.length; i++) {
+      const t = e.results[i][0].transcript;
+      if (e.results[i].isFinal) finalTranscript += t;
+      else interim = t;
+    }
+    const ta = $('field-text');
+    ta.value = finalTranscript + interim;
+    ta.scrollTop = ta.scrollHeight;
+  };
+
+  rec.onerror = (e) => {
+    setListening(false);
+    if (e.error === 'not-allowed') showToast('请允许麦克风权限后再试');
+    else showToast('语音识别出错：' + e.error);
+  };
+
+  rec.onend = () => {
+    if (isListening) rec.start(); // 持续模式：自动重启
+  };
+
+  voiceBtn.addEventListener('click', () => {
+    if (isListening) {
+      rec.stop();
+      setListening(false);
+    } else {
+      finalTranscript = $('field-text').value; // 保留已有内容
+      rec.start();
+      setListening(true);
+    }
+  });
+})();
+
+// ── PWA Service Worker ────────────────────────────────────────────────────────
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.register('/sw.js').catch(() => {});
+}
+
+// ── Boot ──────────────────────────────────────────────────────────────────────
+init();
+</script>
+</body>
+</html>
