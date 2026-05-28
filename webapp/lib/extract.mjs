@@ -1,12 +1,9 @@
 /**
  * Content extraction from 4 input types.
- * Image understanding: Alibaba Cloud Bailian qwen-vl-max (OpenAI-compatible API)
- * URL extraction: Jina Reader (primary) → direct fetch + cheerio (fallback)
- * Video subtitles: yt-dlp
- *
- * Jina Reader (r.jina.ai) is blocked on mainland China servers.
- * The fallback uses cheerio's fromURL to parse the page directly,
- * extracting <article> / <main> / <body> text without external dependencies.
+ * URL      : 直接 fetch + cheerio 解析正文（无境外依赖，适配大陆 ECS）
+ * Image    : 阿里云百炼 qwen-vl-max（DashScope OpenAI-compatible API）
+ * Video    : yt-dlp 本地提取字幕（仅支持 B 站等国内平台）
+ * Text     : 直接使用用户输入
  */
 import OpenAI from 'openai';
 import { execSync } from 'child_process';
@@ -19,35 +16,12 @@ const MAX_CHARS = 14000;
 const DASHSCOPE_BASE_URL = 'https://dashscope.aliyuncs.com/compatible-mode/v1';
 
 /**
- * Try Jina Reader with a short timeout; on failure fall back to direct fetch.
- * This lets the same codebase work on both overseas dev machines and
- * mainland China ECS servers where r.jina.ai is unreachable.
+ * 直接抓取目标页面并用 cheerio 提取正文，无需任何境外中间服务。
  */
 export async function extractUrl(url) {
-  try {
-    const jinaUrl = `https://r.jina.ai/${url}`;
-    const resp = await fetch(jinaUrl, {
-      headers: { Accept: 'text/plain', 'X-Return-Format': 'markdown' },
-      signal: AbortSignal.timeout(8_000),   // 短超时，快速切换到兜底
-    });
-    if (resp.ok) {
-      const text = await resp.text();
-      if (text.trim().length > 100) return text.slice(0, MAX_CHARS);
-    }
-  } catch {
-    // Jina 不可达（如大陆服务器），静默降级
-  }
-
-  return extractUrlDirect(url);
-}
-
-/**
- * Fallback: fetch the page directly and extract readable text via cheerio.
- */
-async function extractUrlDirect(url) {
   const $ = await fromURL(url, {
     headers: {
-      'User-Agent': 'Mozilla/5.0 (compatible; ArticleBot/1.0)',
+      'User-Agent': 'Mozilla/5.0 (compatible; GZHBot/2.0)',
       'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
     },
   });
@@ -55,18 +29,25 @@ async function extractUrlDirect(url) {
   // 移除噪声节点
   $('script, style, nav, header, footer, aside, .ad, .ads, .advertisement, [class*="sidebar"]').remove();
 
-  // 优先取语义化正文容器
-  const candidates = ['article', 'main', '[role="main"]', '.post-content', '.article-content', '.content', 'body'];
+  // 按优先级取语义化正文容器
+  const candidates = [
+    'article', 'main', '[role="main"]',
+    '.post-content', '.article-content', '.article-body',
+    '.content', '#content', '#main',
+    'body',
+  ];
   let text = '';
   for (const sel of candidates) {
     const el = $(sel).first();
     if (el.length) {
-      text = el.text().replace(/\s{2,}/g, ' ').trim();
+      text = el.text().replace(/[ \t]+/g, ' ').replace(/\n{3,}/g, '\n\n').trim();
       if (text.length > 200) break;
     }
   }
 
-  if (text.length < 50) throw new Error('无法从该页面提取到有效内容，请改用"文字"输入方式粘贴原文');
+  if (text.length < 50) {
+    throw new Error('无法从该页面提取到足够内容，建议改用「文字」输入方式手动粘贴原文');
+  }
   return text.slice(0, MAX_CHARS);
 }
 
@@ -109,31 +90,57 @@ export async function extractImage(filePath, apiKey) {
 }
 
 /**
- * Extract subtitles from a video URL using yt-dlp.
- * Supports YouTube, Bilibili (with subtitles).
+ * 从视频 URL 提取字幕文本（通过 yt-dlp）。
+ * 仅支持国内可访问的平台：B 站、西瓜视频等有字幕的视频。
+ * YouTube 在大陆服务器上不可访问，请勿使用。
  */
 export async function extractVideo(videoUrl) {
+  const isBilibili = /bilibili\.com|b23\.tv/i.test(videoUrl);
+  const isXigua = /ixigua\.com/i.test(videoUrl);
+  const isYoutube = /youtube\.com|youtu\.be/i.test(videoUrl);
+
+  if (isYoutube) {
+    throw new Error('YouTube 在服务器上无法访问，请改用 B 站视频，或将字幕/文字内容复制后用「文字」方式输入');
+  }
+  if (!isBilibili && !isXigua) {
+    // 其他平台给出提示但仍尝试，让 yt-dlp 自行判断
+    console.warn(`[extractVideo] 非主流平台，尝试提取: ${videoUrl}`);
+  }
+
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'gzh-ytdlp-'));
   try {
-    execSync(
-      `yt-dlp \
-        --write-auto-sub \
-        --write-sub \
-        --sub-langs "zh-Hans,zh,en" \
-        --sub-format vtt \
-        --skip-download \
-        --no-playlist \
-        --output "${tmpDir}/vid" \
-        "${videoUrl}"`,
-      { timeout: 90_000, stdio: 'pipe' }
-    );
+    try {
+      execSync(
+        `yt-dlp \
+          --write-auto-sub \
+          --write-sub \
+          --sub-langs "zh-Hans,zh,en" \
+          --sub-format vtt \
+          --skip-download \
+          --no-playlist \
+          --output "${tmpDir}/vid" \
+          "${videoUrl}"`,
+        { timeout: 90_000, stdio: 'pipe' }
+      );
+    } catch (e) {
+      const msg = e.stderr?.toString() || e.message || '';
+      if (/unable to download|HTTP Error 4|sign in|Private video/i.test(msg)) {
+        throw new Error('视频无法访问，可能需要登录或视频不公开');
+      }
+      if (/network|timed out|connection/i.test(msg)) {
+        throw new Error('视频平台连接失败，请确认使用的是 B 站等国内平台的链接');
+      }
+      throw new Error(`视频提取失败：${msg.slice(0, 100) || '未知错误'}`);
+    }
 
     const files = fs.readdirSync(tmpDir);
     const subFile = files.find((f) => f.endsWith('.vtt') || f.endsWith('.srt'));
-    if (!subFile) throw new Error('该视频没有可用字幕，无法提取内容');
+    if (!subFile) {
+      throw new Error('该视频没有可用字幕，建议选择有「CC 字幕」标识的 B 站视频，或改用「文字」方式粘贴文稿');
+    }
 
     const raw = fs.readFileSync(path.join(tmpDir, subFile), 'utf-8');
-    return cleanSubtitles(raw).slice(0, JINA_MAX_CHARS);
+    return cleanSubtitles(raw).slice(0, MAX_CHARS);
   } finally {
     fs.rmSync(tmpDir, { recursive: true, force: true });
   }

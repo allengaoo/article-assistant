@@ -12,7 +12,7 @@ import { createSession, getSession, updateSession } from './lib/session.mjs';
 import { persistSession, loadSessionsForDate } from './lib/persistence.mjs';
 import { generateAndSaveDailySummary } from './lib/knowledge.mjs';
 import * as extract from './lib/extract.mjs';
-import * as gemini from './lib/gemini.mjs';
+import * as gemini from './lib/qwen.mjs';
 import { isAuthorized, extractToken } from './lib/auth.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));

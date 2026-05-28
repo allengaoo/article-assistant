@@ -1,7 +1,7 @@
 /**
- * Content generation via Alibaba Cloud Bailian (DashScope) — OpenAI-compatible API.
- * Models used:
- *   - qwen-max   → outline & full article / PRD (best quality, long context)
+ * 内容生成：阿里云百炼（DashScope）OpenAI 兼容接口
+ * 使用模型：
+ *   - qwen-max  → 文章大纲、全文、PRD 文档（长文本、高质量）
  */
 import OpenAI from 'openai';
 
