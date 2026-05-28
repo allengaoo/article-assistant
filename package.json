@@ -8,9 +8,9 @@
     "node": ">=18"
   },
   "scripts": {
-    "test": "NODE_ENV=test node --test 'tests/**/*.test.mjs'",
-    "test:unit": "NODE_ENV=test node --test tests/*.test.mjs",
-    "test:e2e": "NODE_ENV=test node --test tests/e2e/*.test.mjs",
+    "test": "node scripts/run-tests.mjs",
+    "test:unit": "NODE_ENV=test node --test tests/auth.test.mjs tests/knowledge.test.mjs tests/persistence.test.mjs tests/renderer.test.mjs tests/security.test.mjs tests/session.test.mjs",
+    "test:e2e": "NODE_ENV=test node --test tests/e2e/article-flow.test.mjs tests/e2e/health-and-static.test.mjs tests/e2e/prd-flow.test.mjs",
     "start": "npm --prefix webapp start",
     "dev": "npm --prefix webapp run dev",
     "publish": "node scripts/publish.mjs",
