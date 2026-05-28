@@ -114,7 +114,7 @@ ${sessionSummaries}
 
   const openai = new OpenAI({ apiKey, baseURL: BASE_URL, timeout: 60_000 });
   const res = await openai.chat.completions.create({
-    model: 'qwen-max',
+    model: 'qwen3.7-max',
     messages: [
       { role: 'system', content: '你是数据分析助手，分析内容创作记录并提取规律，输出严格 JSON。' },
       { role: 'user', content: prompt },

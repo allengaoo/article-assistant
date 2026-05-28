@@ -1,12 +1,12 @@
 /**
  * 内容生成：阿里云百炼（DashScope）OpenAI 兼容接口
  * 使用模型：
- *   - qwen-max  → 文章大纲、全文、PRD 文档（长文本、高质量）
+ *   - qwen3.7-max  → 文章大纲、全文、PRD 文档（长文本、高质量）
  */
 import OpenAI from 'openai';
 
 const BASE_URL = 'https://dashscope.aliyuncs.com/compatible-mode/v1';
-const MODEL = 'qwen-max';
+const MODEL = 'qwen3.7-max';
 
 const SYSTEM_PROMPT = `你是「工程师的本体论」微信公众号的撰稿人。
 
