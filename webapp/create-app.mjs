@@ -13,7 +13,32 @@ import { persistSession, loadSessionsForDate } from './lib/persistence.mjs';
 import { generateAndSaveDailySummary } from './lib/knowledge.mjs';
 import * as extract from './lib/extract.mjs';
 import * as gemini from './lib/qwen.mjs';
-import { isAuthorized, extractToken } from './lib/auth.mjs';
+import {
+  extractToken,
+  resolveAuth,
+  publicUser,
+  requireAdmin,
+  ownsPipelineSession,
+  LEGACY_USER_ID,
+} from './lib/auth.mjs';
+import { getDb } from './lib/db.mjs';
+import {
+  bootstrapAdminIfEmpty,
+  createUser,
+  findUserByLogin,
+  findUserById,
+  listUsers,
+  updateUser,
+  resetUserPassword,
+  verifyPassword,
+  generatePassword,
+  writeAudit,
+} from './lib/users.mjs';
+import { createAuthSession, deleteAuthSession } from './lib/auth-sessions.mjs';
+import { listPlans } from './lib/plans.mjs';
+import { getEffectivePlan, getUsageSummary, listUsageByUsers } from './lib/usage.mjs';
+import { listSubscriptions, subscribeUser } from './lib/subscriptions.mjs';
+import { quotaGuard, recordQuotaIfNeeded } from './lib/quota-middleware.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT_DIR = path.resolve(__dirname, '..');
@@ -72,6 +97,12 @@ export function createApp(options = {}) {
   const app = express();
   const upload = multer({ dest: path.join(os.tmpdir(), 'gzh-uploads') });
 
+  getDb();
+  bootstrapAdminIfEmpty({
+    login: process.env.ADMIN_LOGIN,
+    password: process.env.ADMIN_PASSWORD,
+  });
+
   app.use(express.json({ limit: '2mb' }));
   app.use(express.urlencoded({ extended: true }));
   app.use(express.static(path.join(__dirname, 'public')));
@@ -95,11 +126,167 @@ export function createApp(options = {}) {
 
   function auth(req, res, next) {
     const token = extractToken(req);
-    if (isAuthorized(token, accessToken)) return next();
-    return res.status(401).json({ error: '无效访问令牌，请重新输入密码' });
+    const user = resolveAuth(token, accessToken);
+    if (!user) {
+      return res.status(401).json({ error: '无效访问令牌，请重新登录' });
+    }
+    req.user = user;
+    req.authToken = token;
+    next();
   }
 
-  app.post('/api/extract', authLimiter, auth, apiLimiter, upload.single('image'), async (req, res) => {
+  function adminOnly(req, res, next) {
+    if (!requireAdmin(req.user)) {
+      return res.status(403).json({ error: '需要管理员权限' });
+    }
+    next();
+  }
+
+  function pipelineUserId(user) {
+    return user.legacy ? LEGACY_USER_ID : user.id;
+  }
+
+  function getOwnedPipelineSession(sessionId, user) {
+    const session = getSession(sessionId);
+    if (!session || !ownsPipelineSession(session, user)) return null;
+    return session;
+  }
+
+  app.post('/api/login', authLimiter, (req, res) => {
+    const loginName = req.body?.loginName?.trim();
+    const password = req.body?.password;
+    if (!loginName || !password) {
+      return res.status(400).json({ error: '请输入账号和密码' });
+    }
+
+    const row = findUserByLogin(loginName);
+    if (!row || !verifyPassword(password, row.password_hash)) {
+      return res.status(401).json({ error: '账号或密码错误' });
+    }
+    if (row.status !== 'active') {
+      return res.status(403).json({ error: '账号已停用，请联系管理员' });
+    }
+
+    const token = createAuthSession(row.id);
+    writeAudit(row.id, 'login', { loginName: row.login_name });
+    res.json({
+      token,
+      user: publicUser({
+        id: row.id,
+        loginName: row.login_name,
+        role: row.role,
+        plan: row.plan,
+      }),
+    });
+  });
+
+  app.post('/api/auth', authLimiter, (req, res) => {
+    const token = extractToken(req);
+    const user = resolveAuth(token, accessToken);
+    if (!user) {
+      return res.status(401).json({ error: '登录已失效，请重新登录' });
+    }
+    return res.json({ ok: true, user: publicUser(user) });
+  });
+
+  app.post('/api/logout', auth, (req, res) => {
+    if (req.authToken && !req.user.legacy) {
+      deleteAuthSession(req.authToken);
+    }
+    writeAudit(req.user.id, 'logout');
+    res.json({ ok: true });
+  });
+
+  app.get('/api/admin/users', auth, adminOnly, (_req, res) => {
+    res.json({ users: listUsers() });
+  });
+
+  app.post('/api/admin/users', auth, adminOnly, (req, res) => {
+    try {
+      const loginName = req.body?.loginName?.trim();
+      const role = req.body?.role === 'admin' ? 'admin' : 'customer';
+      const plan = req.body?.plan || 'free';
+      const initialPassword = req.body?.password?.trim() || generatePassword(10);
+
+      const user = createUser({ loginName, password: initialPassword, role, plan });
+      writeAudit(req.user.id, 'admin.create_user', { targetId: user.id, loginName: user.loginName });
+      res.json({ user, initialPassword });
+    } catch (e) {
+      res.status(400).json({ error: e.message });
+    }
+  });
+
+  app.patch('/api/admin/users/:id', auth, adminOnly, (req, res) => {
+    try {
+      const { status, plan, role } = req.body || {};
+      const user = updateUser(req.params.id, { status, plan, role });
+      writeAudit(req.user.id, 'admin.update_user', { targetId: user.id, status, plan, role });
+      res.json({ user });
+    } catch (e) {
+      res.status(400).json({ error: e.message });
+    }
+  });
+
+  app.post('/api/admin/users/:id/reset-password', auth, adminOnly, (req, res) => {
+    try {
+      const newPassword = req.body?.password?.trim() || generatePassword(10);
+      resetUserPassword(req.params.id, newPassword);
+      writeAudit(req.user.id, 'admin.reset_password', { targetId: req.params.id });
+      res.json({ ok: true, password: newPassword });
+    } catch (e) {
+      res.status(400).json({ error: e.message });
+    }
+  });
+
+  app.get('/api/me', auth, (req, res) => {
+    if (req.user.legacy) {
+      return res.json({
+        user: publicUser(req.user),
+        plan: 'legacy',
+        usage: null,
+        unlimited: true,
+      });
+    }
+    const plan = getEffectivePlan(req.user.id);
+    res.json({
+      user: { ...publicUser(req.user), plan, planExpiresAt: findUserById(req.user.id)?.plan_expires_at ?? null },
+      plan,
+      usage: getUsageSummary(req.user.id, plan),
+      unlimited: false,
+    });
+  });
+
+  app.get('/api/admin/plans', auth, adminOnly, (_req, res) => {
+    res.json({ plans: listPlans() });
+  });
+
+  app.get('/api/admin/usage', auth, adminOnly, (req, res) => {
+    const month = req.query.month || undefined;
+    res.json({ rows: listUsageByUsers(month) });
+  });
+
+  app.get('/api/admin/users/:id/subscriptions', auth, adminOnly, (req, res) => {
+    res.json({ subscriptions: listSubscriptions(req.params.id) });
+  });
+
+  app.post('/api/admin/users/:id/subscribe', auth, adminOnly, (req, res) => {
+    try {
+      const { plan, expiresAt, months, note } = req.body || {};
+      const result = subscribeUser({
+        userId: req.params.id,
+        plan,
+        expiresAt: expiresAt || null,
+        months,
+        note,
+        operatorId: req.user.id,
+      });
+      res.json(result);
+    } catch (e) {
+      res.status(400).json({ error: e.message });
+    }
+  });
+
+  app.post('/api/extract', auth, quotaGuard('extract'), apiLimiter, upload.single('image'), async (req, res) => {
     const { type, url, text, videoUrl } = req.body;
     try {
       let rawContent;
@@ -120,10 +307,11 @@ export function createApp(options = {}) {
       }
 
       const sessionId = randomUUID();
-      createSession(sessionId);
+      createSession(sessionId, { userId: pipelineUserId(req.user) });
       const s = updateSession(sessionId, { rawContent, inputType: type });
       persistSession(sessionId, s);
 
+      recordQuotaIfNeeded(req);
       res.json({ sessionId, preview: rawContent.slice(0, 400) });
     } catch (e) {
       console.error('[extract]', e.message);
@@ -131,15 +319,16 @@ export function createApp(options = {}) {
     }
   });
 
-  app.post('/api/outline', auth, apiLimiter, async (req, res) => {
+  app.post('/api/outline', auth, quotaGuard('ai_outline'), apiLimiter, async (req, res) => {
     const { sessionId } = req.body;
-    const session = getSession(sessionId);
+    const session = getOwnedPipelineSession(sessionId, req.user);
     if (!session) return res.status(404).json({ error: '会话不存在或已过期（4小时），请重新提交输入' });
 
     try {
       const outline = await services.generateOutline(session.rawContent, apiKey, session.outlineHistory);
       const s1 = updateSession(sessionId, { currentOutline: outline, step: 'outlined' });
       persistSession(sessionId, s1);
+      recordQuotaIfNeeded(req);
       res.json({ outline });
     } catch (e) {
       console.error('[outline]', e.message);
@@ -147,11 +336,11 @@ export function createApp(options = {}) {
     }
   });
 
-  app.post('/api/revise', auth, apiLimiter, async (req, res) => {
+  app.post('/api/revise', auth, quotaGuard('ai_outline'), apiLimiter, async (req, res) => {
     const { sessionId, feedback } = req.body;
     if (!feedback?.trim()) return res.status(400).json({ error: '请填写修改意见' });
 
-    const session = getSession(sessionId);
+    const session = getOwnedPipelineSession(sessionId, req.user);
     if (!session) return res.status(404).json({ error: '会话不存在或已过期，请重新提交输入' });
 
     try {
@@ -163,6 +352,7 @@ export function createApp(options = {}) {
 
       const outline = await services.generateOutline(session.rawContent, apiKey, history);
       updateSession(sessionId, { currentOutline: outline });
+      recordQuotaIfNeeded(req);
       res.json({ outline, round: history.length });
     } catch (e) {
       console.error('[revise]', e.message);
@@ -170,9 +360,9 @@ export function createApp(options = {}) {
     }
   });
 
-  app.post('/api/article', auth, apiLimiter, async (req, res) => {
+  app.post('/api/article', auth, quotaGuard('ai_article'), apiLimiter, async (req, res) => {
     const { sessionId } = req.body;
-    const session = getSession(sessionId);
+    const session = getOwnedPipelineSession(sessionId, req.user);
     if (!session) return res.status(404).json({ error: '会话不存在或已过期，请重新提交输入' });
     if (!session.currentOutline) return res.status(400).json({ error: '请先确认大纲' });
 
@@ -180,6 +370,7 @@ export function createApp(options = {}) {
       const article = await services.generateArticle(session.rawContent, session.currentOutline, apiKey);
       const s2 = updateSession(sessionId, { article, step: 'articled' });
       persistSession(sessionId, s2);
+      recordQuotaIfNeeded(req);
       res.json({ article });
     } catch (e) {
       console.error('[article]', e.message);
@@ -187,9 +378,9 @@ export function createApp(options = {}) {
     }
   });
 
-  app.post('/api/publish', auth, apiLimiter, async (req, res) => {
+  app.post('/api/publish', auth, quotaGuard('publish'), apiLimiter, async (req, res) => {
     const { sessionId, coverBase64, coverMode } = req.body;
-    const session = getSession(sessionId);
+    const session = getOwnedPipelineSession(sessionId, req.user);
     if (!session) return res.status(404).json({ error: '会话不存在或已过期，请重新提交输入' });
     if (!session.article) return res.status(400).json({ error: '请先生成全文' });
 
@@ -227,6 +418,7 @@ export function createApp(options = {}) {
       const titleMatch = session.article.match(/^title:\s*(.+)$/m);
       const title = titleMatch ? titleMatch[1].trim() : '文章';
 
+      recordQuotaIfNeeded(req);
       res.json({ success: true, title, log: output.slice(-500) });
     } catch (e) {
       console.error('[publish]', e.message);
@@ -236,14 +428,15 @@ export function createApp(options = {}) {
     }
   });
 
-  app.post('/api/prd-outline', auth, apiLimiter, async (req, res) => {
+  app.post('/api/prd-outline', auth, quotaGuard('ai_outline'), apiLimiter, async (req, res) => {
     const { sessionId } = req.body;
-    const session = getSession(sessionId);
+    const session = getOwnedPipelineSession(sessionId, req.user);
     if (!session) return res.status(404).json({ error: '会话不存在或已过期' });
     try {
       const outline = await services.generatePrdOutline(session.rawContent, apiKey, session.outlineHistory);
       const sp1 = updateSession(sessionId, { currentOutline: outline, step: 'outlined', mode: 'prd' });
       persistSession(sessionId, sp1);
+      recordQuotaIfNeeded(req);
       res.json({ outline });
     } catch (e) {
       console.error('[prd-outline]', e.message);
@@ -251,16 +444,17 @@ export function createApp(options = {}) {
     }
   });
 
-  app.post('/api/prd-revise', auth, apiLimiter, async (req, res) => {
+  app.post('/api/prd-revise', auth, quotaGuard('ai_outline'), apiLimiter, async (req, res) => {
     const { sessionId, feedback } = req.body;
     if (!feedback?.trim()) return res.status(400).json({ error: '请填写修改意见' });
-    const session = getSession(sessionId);
+    const session = getOwnedPipelineSession(sessionId, req.user);
     if (!session) return res.status(404).json({ error: '会话不存在或已过期' });
     try {
       const history = [...session.outlineHistory, { outline: session.currentOutline, feedback: feedback.trim() }];
       updateSession(sessionId, { outlineHistory: history });
       const outline = await services.generatePrdOutline(session.rawContent, apiKey, history);
       updateSession(sessionId, { currentOutline: outline });
+      recordQuotaIfNeeded(req);
       res.json({ outline, round: history.length });
     } catch (e) {
       console.error('[prd-revise]', e.message);
@@ -268,15 +462,16 @@ export function createApp(options = {}) {
     }
   });
 
-  app.post('/api/prd-document', auth, apiLimiter, async (req, res) => {
+  app.post('/api/prd-document', auth, quotaGuard('ai_article'), apiLimiter, async (req, res) => {
     const { sessionId } = req.body;
-    const session = getSession(sessionId);
+    const session = getOwnedPipelineSession(sessionId, req.user);
     if (!session) return res.status(404).json({ error: '会话不存在或已过期' });
     if (!session.currentOutline) return res.status(400).json({ error: '请先确认大纲' });
     try {
       const article = await services.generatePrdDocument(session.rawContent, session.currentOutline, apiKey);
       const sp2 = updateSession(sessionId, { article, step: 'articled', mode: 'prd' });
       persistSession(sessionId, sp2);
+      recordQuotaIfNeeded(req);
       res.json({ article });
     } catch (e) {
       console.error('[prd-document]', e.message);
@@ -286,7 +481,7 @@ export function createApp(options = {}) {
 
   app.get('/api/download-prd', auth, (req, res) => {
     const { sessionId } = req.query;
-    const session = getSession(sessionId);
+    const session = getOwnedPipelineSession(sessionId, req.user);
     if (!session || !session.article) return res.status(404).json({ error: '文档不存在' });
 
     const titleMatch = session.article.match(/^title:\s*(.+)$/m);

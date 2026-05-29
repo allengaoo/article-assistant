@@ -4,10 +4,14 @@ import os from 'node:os';
 import path from 'node:path';
 import { createApp } from '../../webapp/create-app.mjs';
 import { clearSessions } from '../../webapp/lib/session.mjs';
+import { closeDb } from '../../webapp/lib/db.mjs';
+import { setTestPlanLimitsOverride } from '../../webapp/lib/plans.mjs';
 
 /** 仅用于测试的假凭证，不得与生产环境相同 */
 export const TEST_TOKEN = 'test-token-ci-only';
 export const TEST_API_KEY = 'test-api-key-not-real';
+export const TEST_ADMIN_LOGIN = 'testadmin';
+export const TEST_ADMIN_PASSWORD = 'test-admin-pass-ci';
 
 const SENSITIVE_ENV_KEYS = [
   'DASHSCOPE_API_KEY',
@@ -103,6 +107,8 @@ export async function startTestServer(options = {}) {
   process.env.NODE_ENV = 'test';
   process.env.DATA_DIR = dataDir;
   process.env.ACCESS_TOKEN = TEST_TOKEN;
+  process.env.ADMIN_LOGIN = TEST_ADMIN_LOGIN;
+  process.env.ADMIN_PASSWORD = TEST_ADMIN_PASSWORD;
 
   const app = createApp({
     accessToken: TEST_TOKEN,
@@ -126,6 +132,8 @@ export async function startTestServer(options = {}) {
         server.close((err) => (err ? reject(err) : resolve()));
       });
       clearSessions();
+      closeDb();
+      setTestPlanLimitsOverride(null);
       fs.rmSync(dataDir, { recursive: true, force: true });
       delete process.env.DATA_DIR;
       restoreSensitiveEnv(savedEnv);
@@ -134,7 +142,8 @@ export async function startTestServer(options = {}) {
 }
 
 export async function api(baseUrl, path, { token = TEST_TOKEN, method = 'POST', body } = {}) {
-  const headers = { 'x-access-token': token };
+  const headers = {};
+  if (token) headers['x-access-token'] = token;
   let fetchBody;
   if (body !== undefined) {
     headers['Content-Type'] = 'application/json';

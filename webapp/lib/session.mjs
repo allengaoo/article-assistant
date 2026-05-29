@@ -8,9 +8,10 @@ export const TTL_MS = process.env.SESSION_TTL_MS
   ? Number(process.env.SESSION_TTL_MS)
   : 4 * 60 * 60 * 1000;
 
-export function createSession(id) {
+export function createSession(id, extra = {}) {
   const session = {
     id,
+    userId: extra.userId ?? null,
     createdAt: Date.now(),
     step: 'extracted',
     inputType: null,

@@ -1,0 +1,262 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>管理后台 · 工程师投稿助手</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --accent: #2f7fc1; --accent-light: #e8f2fb; --text: #1a1a1a;
+      --text-secondary: #555; --text-muted: #888; --border: #dde3ea;
+      --bg: #f5f7fa; --card: #fff; --danger: #d93025; --success: #1a7a4a;
+      --radius: 10px; --radius-sm: 6px;
+    }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; }
+    header { background: var(--card); border-bottom: 1px solid var(--border); padding: 14px 20px; display: flex; align-items: center; justify-content: space-between; }
+    header h1 { font-size: 17px; }
+    header a { color: var(--accent); text-decoration: none; font-size: 14px; }
+    main { max-width: 960px; margin: 0 auto; padding: 20px 16px 40px; }
+    .card { background: var(--card); border: 1px solid var(--border); border-radius: var(--radius); margin-bottom: 16px; overflow: hidden; }
+    .card-header { padding: 12px 16px; font-weight: 700; font-size: 14px; border-bottom: 1px solid var(--border); background: #fafbfc; }
+    .card-body { padding: 16px; }
+    label { display: block; font-size: 13px; color: var(--text-secondary); margin-bottom: 4px; }
+    input, select { width: 100%; padding: 10px 12px; border: 1px solid var(--border); border-radius: var(--radius-sm); font-size: 14px; margin-bottom: 10px; }
+    .btn { display: inline-block; padding: 10px 16px; border: none; border-radius: var(--radius-sm); font-size: 14px; cursor: pointer; }
+    .btn-primary { background: var(--accent); color: #fff; }
+    .btn-secondary { background: #eef2f6; color: var(--text); }
+    .btn-danger { background: #fdecea; color: var(--danger); }
+    .btn-sm { padding: 6px 10px; font-size: 12px; margin: 2px; }
+    .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+    @media (max-width: 600px) { .grid-2 { grid-template-columns: 1fr; } }
+    table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    th, td { padding: 10px 8px; border-bottom: 1px solid var(--border); text-align: left; vertical-align: top; }
+    th { color: var(--text-muted); font-weight: 600; }
+    .badge { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 11px; }
+    .badge-active { background: #e6f4ea; color: var(--success); }
+    .badge-disabled { background: #fdecea; color: var(--danger); }
+    .badge-admin { background: var(--accent-light); color: var(--accent); }
+    .plans { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; }
+    .plan-card { border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 12px; }
+    .plan-card h3 { font-size: 15px; margin-bottom: 6px; }
+    .plan-card ul { font-size: 12px; color: var(--text-secondary); line-height: 1.7; padding-left: 16px; }
+    #toast { position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%) translateY(80px); background: #333; color: #fff; padding: 10px 20px; border-radius: 8px; font-size: 14px; opacity: 0; transition: .3s; z-index: 99; }
+    #toast.show { transform: translateX(-50%) translateY(0); opacity: 1; }
+    .hidden { display: none !important; }
+    .result-box { background: #f0f7ff; border: 1px solid #c5ddf5; border-radius: var(--radius-sm); padding: 10px 12px; font-size: 13px; margin-top: 8px; word-break: break-all; }
+  </style>
+</head>
+<body>
+<header>
+  <h1>管理后台</h1>
+  <div>
+    <a href="/" style="margin-right:16px;">← 返回投稿</a>
+    <a href="#" id="logout-link">退出</a>
+  </div>
+</header>
+
+<main>
+  <div id="denied" class="card hidden">
+    <div class="card-body">需要管理员权限。请使用管理员账号登录后刷新此页。</div>
+  </div>
+
+  <div id="panel">
+    <div class="card">
+      <div class="card-header">创建客户账号</div>
+      <div class="card-body">
+        <div class="grid-2">
+          <div><label>登录名</label><input id="new-login" placeholder="客户登录名" /></div>
+          <div><label>初始密码（留空自动生成）</label><input id="new-password" type="text" placeholder="至少 6 位" /></div>
+          <div><label>角色</label>
+            <select id="new-role"><option value="customer">客户</option><option value="admin">管理员</option></select>
+          </div>
+          <div><label>套餐</label>
+            <select id="new-plan"><option value="free">免费版</option><option value="pro">专业版</option><option value="enterprise">企业版</option></select>
+          </div>
+        </div>
+        <button class="btn btn-primary" id="create-btn">创建账号</button>
+        <div id="create-result" class="result-box hidden"></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-header">套餐说明</div>
+      <div class="card-body plans" id="plans-list"></div>
+    </div>
+
+    <div class="card">
+      <div class="card-header">用户与本月用量</div>
+      <div class="card-body" style="overflow-x:auto;">
+        <table>
+          <thead>
+            <tr>
+              <th>账号</th><th>角色</th><th>状态</th><th>套餐</th><th>到期</th>
+              <th>提取</th><th>大纲</th><th>全文</th><th>推送</th><th>操作</th>
+            </tr>
+          </thead>
+          <tbody id="users-tbody"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</main>
+
+<div id="toast"></div>
+
+<script>
+const token = localStorage.getItem('gzh_token') || '';
+const $ = (id) => document.getElementById(id);
+let toastTimer;
+
+function showToast(msg) {
+  const t = $('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => t.classList.remove('show'), 3500);
+}
+
+async function api(path, opts = {}) {
+  const headers = { 'x-access-token': token, 'Content-Type': 'application/json' };
+  const res = await fetch(path, { ...opts, headers: { ...headers, ...opts.headers } });
+  const data = await res.json().catch(() => ({}));
+  if (res.status === 401) { localStorage.removeItem('gzh_token'); location.href = '/'; throw new Error('请重新登录'); }
+  if (!res.ok) throw new Error(data.error || `请求失败 ${res.status}`);
+  return data;
+}
+
+function fmtUsage(u) {
+  if (!u?.usage) return '-';
+  const o = u.usage;
+  return {
+    extract: `${o.extract.used}/${o.extract.limit}`,
+    outline: `${o.ai_outline.used}/${o.ai_outline.limit}`,
+    article: `${o.ai_article.used}/${o.ai_article.limit}`,
+    publish: `${o.publish.used}/${o.publish.limit}`,
+  };
+}
+
+function fmtDate(iso) {
+  if (!iso) return '长期';
+  return iso.slice(0, 10);
+}
+
+async function loadPlans() {
+  const { plans } = await api('/api/admin/plans', { method: 'GET' });
+  $('plans-list').innerHTML = plans.map((p) => `
+    <div class="plan-card">
+      <h3>${p.name} <span style="color:var(--text-muted);font-weight:400;font-size:12px;">${p.priceLabel}</span></h3>
+      <ul>
+        <li>提取 ${p.limits.extract}/月</li>
+        <li>大纲 ${p.limits.ai_outline}/月</li>
+        <li>全文 ${p.limits.ai_article}/月</li>
+        <li>推送 ${p.limits.publish}/月</li>
+      </ul>
+    </div>`).join('');
+}
+
+async function loadUsage() {
+  const { rows } = await api('/api/admin/usage', { method: 'GET' });
+  $('users-tbody').innerHTML = rows.map((r) => {
+    const u = fmtUsage(r);
+    const isActive = r.status === 'active';
+    return `<tr>
+      <td><strong>${r.loginName}</strong></td>
+      <td>${r.role === 'admin' ? '<span class="badge badge-admin">管理</span>' : '客户'}</td>
+      <td><span class="badge ${isActive ? 'badge-active' : 'badge-disabled'}">${isActive ? '正常' : '停用'}</span></td>
+      <td>${r.plan}</td>
+      <td>${fmtDate(r.planExpiresAt)}</td>
+      <td>${u.extract || '-'}</td>
+      <td>${u.outline || '-'}</td>
+      <td>${u.article || '-'}</td>
+      <td>${u.publish || '-'}</td>
+      <td>
+        <button class="btn btn-secondary btn-sm" data-act="reset" data-id="${r.userId}">重置密码</button>
+        <button class="btn btn-secondary btn-sm" data-act="toggle" data-id="${r.userId}" data-status="${r.status}">${isActive ? '停用' : '启用'}</button>
+        <button class="btn btn-secondary btn-sm" data-act="pro" data-id="${r.userId}">开通 Pro 1月</button>
+        <button class="btn btn-secondary btn-sm" data-act="free" data-id="${r.userId}">改免费版</button>
+      </td>
+    </tr>`;
+  }).join('');
+}
+
+$('create-btn').addEventListener('click', async () => {
+  try {
+    const body = {
+      loginName: $('new-login').value.trim(),
+      role: $('new-role').value,
+      plan: $('new-plan').value,
+    };
+    const pwd = $('new-password').value.trim();
+    if (pwd) body.password = pwd;
+    const data = await api('/api/admin/users', { method: 'POST', body: JSON.stringify(body) });
+    const box = $('create-result');
+    box.classList.remove('hidden');
+    box.textContent = `已创建 ${data.user.loginName}，初始密码：${data.initialPassword}`;
+    $('new-login').value = '';
+    $('new-password').value = '';
+    await loadUsage();
+    showToast('创建成功');
+  } catch (e) { showToast(e.message); }
+});
+
+$('users-tbody').addEventListener('click', async (e) => {
+  const btn = e.target.closest('button[data-act]');
+  if (!btn) return;
+  const id = btn.dataset.id;
+  const act = btn.dataset.act;
+  try {
+    if (act === 'reset') {
+      const data = await api(`/api/admin/users/${id}/reset-password`, { method: 'POST', body: '{}' });
+      showToast(`新密码：${data.password}`);
+      alert(`新密码（请复制发给客户）：\n${data.password}`);
+    } else if (act === 'toggle') {
+      const next = btn.dataset.status === 'active' ? 'disabled' : 'active';
+      await api(`/api/admin/users/${id}`, { method: 'PATCH', body: JSON.stringify({ status: next }) });
+      showToast(next === 'active' ? '已启用' : '已停用');
+      await loadUsage();
+    } else if (act === 'pro') {
+      await api(`/api/admin/users/${id}/subscribe`, {
+        method: 'POST',
+        body: JSON.stringify({ plan: 'pro', months: 1, note: 'admin manual' }),
+      });
+      showToast('已开通 Pro 1 个月');
+      await loadUsage();
+    } else if (act === 'free') {
+      await api(`/api/admin/users/${id}/subscribe`, {
+        method: 'POST',
+        body: JSON.stringify({ plan: 'free', expiresAt: null, note: 'downgrade' }),
+      });
+      showToast('已改为免费版');
+      await loadUsage();
+    }
+  } catch (err) { showToast(err.message); }
+});
+
+$('logout-link').addEventListener('click', (e) => {
+  e.preventDefault();
+  localStorage.removeItem('gzh_token');
+  localStorage.removeItem('gzh_user');
+  location.href = '/';
+});
+
+async function init() {
+  if (!token) { location.href = '/'; return; }
+  try {
+    const me = await api('/api/me', { method: 'GET' });
+    if (me.user?.role !== 'admin' && !me.user?.legacy) {
+      $('panel').classList.add('hidden');
+      $('denied').classList.remove('hidden');
+      return;
+    }
+    await loadPlans();
+    await loadUsage();
+  } catch {
+    location.href = '/';
+  }
+}
+
+init();
+</script>
+</body>
+</html>

@@ -1,6 +1,6 @@
 import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { startTestServer, api } from '../helpers/test-server.mjs';
+import { startTestServer, api, TEST_TOKEN } from '../helpers/test-server.mjs';
 
 describe('e2e: 健康检查与静态页面', () => {
   /** @type {Awaited<ReturnType<typeof startTestServer>>} */
@@ -12,6 +12,19 @@ describe('e2e: 健康检查与静态页面', () => {
 
   after(async () => {
     await ctx.close();
+  });
+
+  it('POST /api/auth 正确 legacy token 返回 ok', async () => {
+    const res = await api(ctx.baseUrl, '/api/auth', { token: TEST_TOKEN });
+    assert.equal(res.status, 200);
+    assert.equal(res.data.ok, true);
+    assert.equal(res.data.user.legacy, true);
+  });
+
+  it('POST /api/auth 错误密码返回 401', async () => {
+    const res = await api(ctx.baseUrl, '/api/auth', { token: 'wrong-password' });
+    assert.equal(res.status, 401);
+    assert.match(res.data.error, /登录/);
   });
 
   it('GET /api/health 返回 ok', async () => {
